@@ -1,12 +1,20 @@
 import threading
-from http.client import responses
-
 from PyQt5.QtWidgets import QApplication, QFileDialog, QMainWindow, QPushButton, QVBoxLayout, QWidget
-import pyperclip
 import os
+import sys
 import time
 from openai import OpenAI
-conversation_log = [{"role": "user", "content": """This GPT's goal is to help users create Python unit tests by analyzing the code provided in the uploaded files and generating appropriate unit tests for the functions and methods in those files. It will ensure the tests are comprehensive and follow best practices for unit testing in Python. The GPT should only create unit tests and not modify the original code unless specified by the user. It should follow the pytest framework standards and avoid using other testing libraries unless specified by the user. The tests should be up-to-date and follow best practices for Python unit testing. The GPT will clearly explain the generated tests, ensuring they cover various scenarios, including edge cases, and are easy to understand and maintain. The emphasis will be on testing the unhappy paths, focusing on finding all possible bad outcomes and assessing the likelihood of their occurrence, rather than on preferred outcomes.
+
+
+
+
+
+CONTEXT_FILE = os.getenv("CONTEXT_FILE")
+
+sys.stderr = open(os.devnull, 'w')
+
+base_context = (
+    """This GPT's goal is to help users create Python unit tests by analyzing the code provided in the uploaded files and generating appropriate unit tests for the functions and methods in those files. It will ensure the tests are comprehensive and follow best practices for unit testing in Python. The GPT should only create unit tests and not modify the original code unless specified by the user. It should follow the pytest framework standards and avoid using other testing libraries unless specified by the user. The tests should be up-to-date and follow best practices for Python unit testing. The GPT will clearly explain the generated tests, ensuring they cover various scenarios, including edge cases, and are easy to understand and maintain. The emphasis will be on testing the unhappy paths, focusing on finding all possible bad outcomes and assessing the likelihood of their occurrence, rather than on preferred outcomes.
 
 Upon receiving a file from the user, the GPT will go through the following list of checks before generating any code:
 1. Review the Code:
@@ -50,19 +58,28 @@ After generating the tests, the GPT will review the test code:
    - Ensure tests run efficiently and do not take too long to execute.
    - Use setup and teardown methods to optimize repetitive tasks.
 
-If the user does not specify, it will default to creating basic tests covering typical use cases and edge cases. If the GPT detects any security concerns or optimization issues in the provided code, it will ask the user if they would like recommendations after building the tests. If the user agrees, the GPT will offer to rebuild the original code to be more streamlined and up to Python standards, with a focus on security as the highest priority. It will maintain a helpful and professional tone, being concise and clear in explanations. The GPT will communicate in a casual and friendly manner, explaining in detail (Barney style) all the tests that have been created, preferably right after generating the tests.  Use Setup, Execute and verify terminology for the comments.  Include the class name in lowercase snake case conventions when naming each function.  Explain each test case in the comments of the code. 
+If the user does not specify, it will default to creating basic tests covering typical use cases and edge cases. If the GPT detects any security concerns or optimization issues in the provided code, it will ask the user if they would like recommendations after building the tests. If the user agrees, the GPT will offer to rebuild the original code to be more streamlined and up to Python standards, with a focus on security as the highest priority. It will maintain a helpful and professional tone, being concise and clear in explanations. The GPT will communicate in a casual and friendly manner, explaining in detail (Barney style) all the tests that have been created, preferably right after generating the tests.  Use Setup, Execute and verify terminology for the comments.  Include the class name in lowercase snake case conventions when naming each function.  Explain each test case in the comments of the code.
 When reviewing and creating output is absolutely crucial that you folllow these instructions:
 
- Use the uuid4() method to generate UUID4s if there are any. Make sure the class name for the tests is "Test"  then the name of the class following immediately after.  Include the @pytest.mark.asyncio above the class initialization.  Put the tests for all this code, in one copiable python code block."""}]
+Make sure the class name for the tests is "Test"  then the name of the class following immediately after.  Include the @pytest.mark.asyncio above the class initialization.  Put the tests for all this code, in one copiable python code block.""",
+)
+
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-
-
 class SaveTest(QMainWindow):
     def __init__(self):
+
         super().__init__()
+        self.client = client
+        try:  # Load the context file
+            with open(CONTEXT_FILE, "r") as f:
+                self.context = f.read()
+
+        except FileNotFoundError:
+            self.context = base_context[0]
+        self.conversation_log = [{"role": "user", "content": self.context}]
         selected_files = self.open_multiple_files()
         start_text = "Below are the files you need to analyze."
         # Print the selected file paths
@@ -75,15 +92,16 @@ class SaveTest(QMainWindow):
         self.text_to_copy = ""
         count = 0
         for text_portion in range(1, len(markdown.split("```"))):
-            if (text_portion % 2 == 1):
+            if text_portion % 2 == 1:
                 count += 1
                 portion = markdown.split("```")[text_portion]
                 portion_pieces = portion.splitlines()
                 final_portion = "\n".join(portion_pieces[1:])
                 self.text_to_copy += final_portion + "\n\n\n"
+
     def spinner(self):
         while True:
-            for cursor in '|/-\\':
+            for cursor in "|/-\\":
                 yield cursor
 
     def show_spinner(self, spinner_gen):
@@ -98,10 +116,10 @@ class SaveTest(QMainWindow):
         spinner_gen = self.spinner()
         spinner_thread = threading.Thread(target=self.show_spinner, args=(spinner_gen,))
         spinner_thread.start()
-        conversation_log.append({"role": "user", "content": prompt})
-        chat_completion = client.chat.completions.create(
-            messages=conversation_log,
-            model="gpt-4o",
+        self.conversation_log.append({"role": "user", "content": prompt})
+        chat_completion = self.client.chat.completions.create(
+            messages=self.conversation_log,
+            model="o1-mini",
         )
         spinner_done = True
         spinner_thread.join()
@@ -111,20 +129,20 @@ class SaveTest(QMainWindow):
         files, _ = QFileDialog.getOpenFileNames(None, "Select Files")
         return files
 
-
     def show_save_dialog(self):
         # Open a Save File dialog
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getSaveFileName(
-            self,                # Parent widget
-            "Save File",         # Dialog title
-            "",                  # Default directory or file name
+            self,  # Parent widget
+            "Save File",  # Dialog title
+            "",  # Default directory or file name
             "All Files (*);;Text Files (*.txt);;Python Files (*.py)",  # File types
-            options=options
+            options=options,
         )
         if file_path:
             return file_path, self.text_to_copy
         return None, None
+
 
 # Get the selected files
 def main():
@@ -136,8 +154,5 @@ def main():
             f.write(content)
 
 
-
 if __name__ == "__main__":
     main()
-
-

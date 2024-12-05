@@ -1,5 +1,5 @@
 import threading
-from PyQt5.QtWidgets import QApplication, QFileDialog, QMainWindow, QPushButton, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QApplication, QFileDialog, QMainWindow
 import os
 import sys
 import time
